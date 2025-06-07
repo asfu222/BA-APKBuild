@@ -73,6 +73,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "Temporary release ${{ steps.tag.outputs.tag }}"
           files: ${{ env.ARTIFACT_NAME }}
+          token: ${{ secrets.PRIVATE_GITHUB_TOKEN }}
 
       - name: Get asset ID
         id: get_asset
