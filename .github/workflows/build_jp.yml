@@ -1,0 +1,132 @@
+name: Build JP APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdkUrl:
+        description: 'SDK URL'
+        required: true
+      infoUrl:
+        description: 'Info URL'
+        required: true
+      callbackUrl:
+        description: 'Callback URL'
+        required: false
+  repository_dispatch:
+    types: [build-jp]
+    
+permissions:
+  contents: write
+  
+env:
+  ARTIFACT_NAME: default.apk
+
+jobs:
+  build_and_release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set inputs for repository_dispatch or workflow_dispatch
+        id: vars
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "sdkUrl=${{ github.event.inputs.sdkUrl }}" >> $GITHUB_OUTPUT
+            echo "infoUrl=${{ github.event.inputs.infoUrl }}" >> $GITHUB_OUTPUT
+            echo "callbackUrl="${{ github.event.inputs.callbackUrl }}"" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            echo "sdkUrl=${{ github.event.client_payload.sdkUrl }}" >> $GITHUB_OUTPUT
+            echo "infoUrl=${{ github.event.client_payload.infoUrl }}" >> $GITHUB_OUTPUT
+            echo "callbackUrl="${{ github.event.client_payload.callbackUrl }}"" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SRC_REPO_JP }}
+          ssh-key: ${{ secrets.DEPLOY_KEY_JP }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          
+      - name: Setup & Build
+        run: |
+          git clone --depth 1 https://github.com/asfu222/BlueArchiveLocalizationTools.git
+          chmod +x ./build.sh
+          ./build.sh "${{ steps.vars.outputs.sdkUrl }}" "${{ steps.vars.outputs.infoUrl }}" > /dev/null
+          
+      - name: Sign APK
+        run: |
+          echo "${{ secrets.KEYSTORE_FILE }}" | base64 --decode > keystore.jks
+          java -jar APKEditor.jar m -i build -o default.apk
+          java -jar uber-apk-signer.jar -a default.apk --allowResign --overwrite --ks keystore.jks --ksAlias "${{ secrets.KEY_ALIAS }}" --ksKeyPass "${{ secrets.KEY_PASSWORD }}" --ksPass "${{ secrets.KEYSTORE_PASSWORD }}"
+          
+      - name: Generate random tag name
+        id: tag
+        run: |
+          TAG="build-$(date +%s)"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact to release
+        id: upload_asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Temporary release ${{ steps.tag.outputs.tag }}"
+          files: ${{ env.ARTIFACT_NAME }}
+
+      - name: Get asset ID
+        id: get_asset
+        run: |
+          RELEASE_INFO=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}Private/releases/tags/${{ steps.tag.outputs.tag }})
+          
+          ASSET_ID=$(echo "$RELEASE_INFO" | jq -r ".assets[] | select(.name == \"${{ env.ARTIFACT_NAME }}\") | .id")
+          echo "asset_id=$ASSET_ID" >> $GITHUB_OUTPUT
+
+      - name: Get signed URL for asset
+        id: get_signed_url
+        run: |
+          ASSET_ID=${{ steps.get_asset.outputs.asset_id }}
+          ASSET_URL="https://api.github.com/repos/${{ github.repository }}Private/releases/assets/${ASSET_ID}"
+
+          # Verbosely fetch headers (but don’t follow redirects), capture everything
+          curl -D headers.txt -o /dev/null \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/octet-stream" \
+            "$ASSET_URL" || true
+
+          # Extract the Location header
+          SIGNED_URL=$(grep -i '^Location:' headers.txt | head -n1 | cut -d' ' -f2 | tr -d '\r')
+
+          # Output for later steps
+          echo "signed_url=$SIGNED_URL" >> $GITHUB_OUTPUT
+          
+      - name: Notify callback
+        if: always()
+        run: |
+          if [[ -n "${{ steps.vars.outputs.callbackUrl }}" ]]; then
+            curl -X POST -H "Content-Type: application/json" \
+              -d '{"url": "${{ steps.get_signed_url.outputs.signed_url }}"}' \
+              "${{ steps.vars.outputs.callbackUrl }}"
+          else
+            echo "No callback URL provided."
+          fi
+    
+      - name: Sleep before delete
+        run: sleep 300
+
+      - name: Delete release
+        run: |
+          RELEASE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}Private/releases/tags/${{ steps.tag.outputs.tag }} | jq -r .id)
+
+          curl -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}Private/releases/$RELEASE_ID
+
+      - name: Delete tag
+        run: |
+          curl -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}Private/git/refs/tags/${{ steps.tag.outputs.tag }}
