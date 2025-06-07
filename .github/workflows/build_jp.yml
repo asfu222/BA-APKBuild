@@ -107,9 +107,15 @@ jobs:
         if: always()
         run: |
           if [[ -n "${{ steps.vars.outputs.callbackUrl }}" ]]; then
-            curl -X POST -H "Content-Type: application/json" \
-              -d '{"url": "${{ steps.get_signed_url.outputs.signed_url }}"}' \
+            if [[ -n "${{ github.event_name }}" == "repository_dispatch" ]]; then
+              curl -X POST -H "Content-Type: application/json" \
+              -d '{"url": "${{ steps.get_signed_url.outputs.signed_url }}","auth":"${{ secrets.CF_AUTH }}"}' \
               "${{ steps.vars.outputs.callbackUrl }}"
+            else
+              curl -X POST -H "Content-Type: application/json" \
+                -d '{"url": "${{ steps.get_signed_url.outputs.signed_url }}"}' \
+                "${{ steps.vars.outputs.callbackUrl }}"
+            fi
           else
             echo "No callback URL provided."
           fi
