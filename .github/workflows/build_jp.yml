@@ -107,7 +107,7 @@ jobs:
         if: always()
         run: |
           if [[ -n "${{ steps.vars.outputs.callbackUrl }}" ]]; then
-            if [[ -n "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
               curl -X POST -H "Content-Type: application/json" \
               -d '{"url": "${{ steps.get_signed_url.outputs.signed_url }}","auth":"${{ secrets.CF_AUTH }}"}' \
               "${{ steps.vars.outputs.callbackUrl }}"
