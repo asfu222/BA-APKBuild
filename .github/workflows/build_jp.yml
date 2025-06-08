@@ -20,6 +20,10 @@ on:
         default: false
         description: 'Trust user-installed CAs'
         required: true
+      skipBuildEmbed:
+        default: false
+        description: 'if true, ignore all sdk/info urls set above and uses game default'
+        required: true
   repository_dispatch:
     types: [build-jp]
   
@@ -39,13 +43,15 @@ jobs:
             echo "infoUrl=${{ github.event.inputs.infoUrl }}" >> $GITHUB_OUTPUT
             echo "callbackUrl="${{ github.event.inputs.callbackUrl }}"" >> $GITHUB_OUTPUT
             echo "applyCN="${{ github.event.inputs.applyCN }}"" >> $GITHUB_OUTPUT
-            echo "allowUserCerts="${{ github.event.client_payload.allowUserCerts }}"" >> $GITHUB_OUTPUT
+            echo "allowUserCerts="${{ github.event.inputs.allowUserCerts }}"" >> $GITHUB_OUTPUT
+            echo "skipBuildEmbed="${{ github.event.inputs.skipBuildEmbed }}"" >> $GITHUB_OUTPUT
           elif [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
             echo "sdkUrl=${{ github.event.client_payload.sdkUrl }}" >> $GITHUB_OUTPUT
             echo "infoUrl=${{ github.event.client_payload.infoUrl }}" >> $GITHUB_OUTPUT
             echo "callbackUrl="${{ github.event.client_payload.callbackUrl }}"" >> $GITHUB_OUTPUT
             echo "applyCN="${{ github.event.client_payload.applyCN }}"" >> $GITHUB_OUTPUT
             echo "allowUserCerts="${{ github.event.client_payload.allowUserCerts }}"" >> $GITHUB_OUTPUT
+            echo "skipBuildEmbed="${{ github.event.client_payload.skipBuildEmbed }}"" >> $GITHUB_OUTPUT
           fi
 
       - name: Checkout Repository
@@ -64,7 +70,7 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/asfu222/BlueArchiveLocalizationTools.git
           chmod +x ./build.sh
-          ./build.sh "${{ steps.vars.outputs.sdkUrl }}" "${{ steps.vars.outputs.infoUrl }}" "${{ steps.vars.outputs.applyCN }}" "${{ steps.vars.outputs.allowUserCerts }}" > /dev/null
+          ./build.sh "${{ steps.vars.outputs.sdkUrl }}" "${{ steps.vars.outputs.infoUrl }}" "${{ steps.vars.outputs.applyCN }}" "${{ steps.vars.outputs.allowUserCerts }}" "${{ steps.vars.outputs.skipBuildEmbed }}" > /dev/null
           
       - name: Sign APK
         run: |
